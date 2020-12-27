@@ -160,7 +160,7 @@ function lexer:nextToken()
     --string
     local stringEnd = char
     
-    self:advance()
+    tokenValue = self:eat()
     
     while self.curChar ~= stringEnd do
       if self.curChar:find("[\r\n]") then
@@ -186,8 +186,7 @@ function lexer:nextToken()
           --decimal character code (up to 3 digits)
           local code = ""
           while self.curChar:find("%d") and #code < 3 do
-            code = code .. self.curChar
-            self:advance()
+            code = code .. self:eat()
           end
           if tonumber(code) > 255 then
             self:escapeSequenceError(code)
@@ -219,26 +218,25 @@ function lexer:nextToken()
       end
     end
     
-    self:advance()
+    tokenValue = tokenValue .. self:eat()
     
     tokenType = "string"
     
   elseif self.code:sub(self.index, self.index + 1) == "[[" then
     --multiline string
     --NOTE: characters are not escaped here
-    self:advance(2)
+    tokenValue = self:eat(2)
     if self.curChar:find("[\r\n]") then
       --newline immediately after opening brackets is skipped
       self:advance(self.curChar == "\r" and 2 or 1) --to support both lf and crlf line endings
     end
     while self.code:sub(self.index, self.index + 1) ~= "]]" do
-      tokenValue = tokenValue .. self.curChar
-      self:advance(1)
+      tokenValue = tokenValue .. self:eat()
       if self.stopped then
         self:syntaxError("unfinished long string")
       end
     end
-    self:advance(2)
+    tokenValue = tokenValue .. self:eat(2)
     
     tokenType = "string"
     
