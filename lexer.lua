@@ -78,6 +78,13 @@ function lexer:prevChar()
   return self.code:sub(self.index-1, self.index-1)
 end
 
+function lexer:eat(times)
+  times = times or 1
+  local value = self.code:sub(self.index, self.index + times - 1)
+  self:advance(times)
+  return value
+end
+
 --returns value, type
 function lexer:nextToken()
   --skip any spaces, newlines and comments
