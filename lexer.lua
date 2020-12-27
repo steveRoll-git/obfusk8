@@ -39,7 +39,7 @@ lexer.__index = lexer
 function lexer.new(code, filename)
   local obj = setmetatable({}, lexer)
   
-  obj.filename = filename
+  obj.filename = filename or "code"
   
   obj.code = code
   obj.index = 1
