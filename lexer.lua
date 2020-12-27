@@ -88,26 +88,7 @@ end
 --returns value, type
 function lexer:nextToken()
   --skip any spaces, newlines and comments
-  while not self.stopped and (self.curChar:find("%s") or self.code:sub(self.index, self.index + 1) == "--") do
-    if self.code:sub(self.index, self.index + 1) == "--" then
-      self:advance(2)
-      if self.code:sub(self.index, self.index + 1) == "[[" then
-        --multiline comment
-        self:advance(2)
-        while self.code:sub(self.index, self.index + 1) ~= "]]" do
-          self:advance()
-          if self.stopped then
-            self:syntaxError("unfinished long comment")
-          end
-        end
-        self:advance()
-      else
-        --single line comment
-        while self.curChar ~= "\n" and not self.stopped do
-          self:advance()
-        end
-      end
-    end
+  while not self.stopped and self.curChar:find("%s") do
     self:advance()
   end
   
@@ -120,7 +101,34 @@ function lexer:nextToken()
   
   local char = self.curChar
   
-  if char:find("[%a_]") then
+  if self.code:sub(self.index, self.index + 1) == "--" then
+    --comment
+    tokenValue = self:eat(2)
+    if self.code:sub(self.index, self.index + 1) == "[[" then
+      --multiline comment
+      tokenValue = tokenValue .. "[["
+      self:advance(2)
+      while self.code:sub(self.index, self.index + 1) ~= "]]" do
+        tokenValue = tokenValue .. self:eat()
+        if self.stopped then
+          self:syntaxError("unfinished long comment")
+        end
+      end
+      self:advance()
+      
+      tokenValue = tokenValue .. "]]"
+      
+      tokenType = "multilineComment"
+    else
+      --single line comment
+      while not self.curChar:find("[\r\n]") and not self.stopped do
+        tokenValue = tokenValue .. self:eat()
+      end
+      
+      tokenType = "singleComment"
+    end
+    
+  elseif char:find("[%a_]") then
     --identifier or keyword
     while self.curChar:find("[%w_]") do
       tokenValue = tokenValue .. self.curChar
@@ -225,7 +233,7 @@ function lexer:nextToken()
     end
     while self.code:sub(self.index, self.index + 1) ~= "]]" do
       tokenValue = tokenValue .. self.curChar
-      self:advance(self.curChar == "\r" and 2 or 1)
+      self:advance(1)
       if self.stopped then
         self:syntaxError("unfinished long string")
       end
