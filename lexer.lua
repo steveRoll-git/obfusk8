@@ -78,6 +78,17 @@ function lexer:prevChar()
   return self.code:sub(self.index-1, self.index-1)
 end
 
+function lexer:advanceTo(index)
+  for _ in self.code:sub(self.index, index):gmatch("\n") do
+    self.currentLine = self.currentLine + 1
+  end
+  self.index = index
+  self:updateCurChar()
+  if self.index > #self.code then
+    self.stopped = true
+  end
+end
+
 function lexer:eat(times)
   times = times or 1
   local value = self.code:sub(self.index, self.index + times - 1)
@@ -103,29 +114,25 @@ function lexer:nextToken()
   
   if self.code:sub(self.index, self.index + 1) == "--" then
     --comment
-    tokenValue = self:eat(2)
-    if self.code:sub(self.index, self.index + 1) == "[[" then
+    if self.code:sub(self.index + 2, self.index + 3) == "[[" then
       --multiline comment
-      tokenValue = tokenValue .. "[["
-      self:advance(2)
-      while self.code:sub(self.index, self.index + 1) ~= "]]" do
-        tokenValue = tokenValue .. self:eat()
-        if self.stopped then
-          self:syntaxError("unfinished long comment")
-        end
-      end
-      self:advance()
       
-      tokenValue = tokenValue .. "]]"
+      local endIndex = self.code:find("]]", self.index + 4)
+      if not endIndex then
+        self:syntaxError("unfinished multiline comment")
+      end
+      
+      tokenValue = self.code:sub(self.index, endIndex + 1)
       
       tokenType = "multilineComment"
+      
+      self:advanceTo(endIndex + 2)
     else
-      --single line comment
-      while not self.curChar:find("[\r\n]") and not self.stopped do
-        tokenValue = tokenValue .. self:eat()
-      end
+      local endIndex = self.code:find("\n", self.index + 2) or #self.code
+      tokenValue = self.code:sub(self.index, endIndex - 1)
       
       tokenType = "singleComment"
+      self:advanceTo(endIndex)
     end
     
   elseif char:find("[%a_]") then
@@ -160,85 +167,29 @@ function lexer:nextToken()
     --string
     local stringEnd = char
     
-    tokenValue = self:eat()
-    
-    while self.curChar ~= stringEnd do
-      if self.curChar:find("[\r\n]") then
-        --quoted strings must end on the same line (unless escaped)
-        self:syntaxError("unfinished string")
-      elseif self.curChar == "\\" then
-        --backslash escape sequence
-        self:advance()
-        if self.curChar == "x" then
-          --hexadecimal character code (exactly 2 digits)
-          local code = ""
-          self:advance()
-          for i=1, 2 do
-            code = code .. self.curChar
-            if self.stopped or not self.curChar:find("%x") then
-              self:escapeSequenceError("x" .. code)
-            end
-            self:advance()
-          end
-          tokenValue = tokenValue .. string.char(tonumber(code, 16))
-          
-        elseif self.curChar:find("%d") then
-          --decimal character code (up to 3 digits)
-          local code = ""
-          while self.curChar:find("%d") and #code < 3 do
-            code = code .. self:eat()
-          end
-          if tonumber(code) > 255 then
-            self:escapeSequenceError(code)
-          end
-          tokenValue = tokenValue .. string.char(tonumber(code))
-          
-        elseif self.curChar == "z" then --in vanilla lua since 5.2, but also in luajit
-          --skip any spaces and newlines
-          self:advance()
-          while self.curChar:find("%s") do
-            self:advance()
-          end
-          
-        elseif self.curChar:find("[\r\n]") then
-          --insert literal newline
-          tokenValue = tokenValue .. "\n"
-          
-        elseif stringEscapeChars[self.curChar] then
-          --escape C-like character
-          tokenValue = tokenValue .. stringEscapeChars[self.curChar]
-          self:advance()
-          
-        else
-          self:escapeSequenceError(self.curChar)
-        end
-      else
-        tokenValue = tokenValue .. self.curChar
-        self:advance()
-      end
+    local endIndex = self.code:find("[^\\]" .. stringEnd, self.index + 1)
+    if not endIndex then
+      self:syntaxError("unfinished string")
     end
     
-    tokenValue = tokenValue .. self:eat()
+    tokenValue = self.code:sub(self.index, endIndex + 1)
     
     tokenType = "string"
+    
+    self:advanceTo(endIndex + 2)
     
   elseif self.code:sub(self.index, self.index + 1) == "[[" then
     --multiline string
-    --NOTE: characters are not escaped here
-    tokenValue = self:eat(2)
-    if self.curChar:find("[\r\n]") then
-      --newline immediately after opening brackets is skipped
-      self:advance(self.curChar == "\r" and 2 or 1) --to support both lf and crlf line endings
+    local endIndex = self.code:find("]]", self.index + 2)
+    if not endIndex then
+      self:syntaxError("unfinished string")
     end
-    while self.code:sub(self.index, self.index + 1) ~= "]]" do
-      tokenValue = tokenValue .. self:eat()
-      if self.stopped then
-        self:syntaxError("unfinished long string")
-      end
-    end
-    tokenValue = tokenValue .. self:eat(2)
+    
+    tokenValue = self.code:sub(self.index, endIndex + 1)
     
     tokenType = "string"
+    
+    self:advanceTo(endIndex + 2)
     
   elseif char:find("%p") then
     --punctuation
